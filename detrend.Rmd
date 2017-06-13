@@ -1,0 +1,98 @@
+---
+title: "Detrending interepidemic time series in order to get EWS"
+output: html_document
+---
+
+Load in Niger measles interepidemic time series
+
+```{r}
+load("inter_epi_data.Rda")
+```
+
+Detrend the data (for one of the time series; I choose a relatively long one in this example)
+
+```{r}
+z<-inter.epi.2[[10]]
+plot(z,type="l")
+z.stl<-stl(ts(z,freq=52),s.window="per",robust=F)
+```
+
+Plot the data, seaonal pattern, trend, and remainder
+
+```{r}
+plot(z.stl)
+```
+
+Demonstrate that we can indentify the relevant part of the object (to use with `spaero`)
+
+```{r}
+plot(z.stl$time.series[,3])
+length(z)
+length(z.stl$time.series[,3])
+str(z.stl$time.series[,3])
+head(z.stl$time.series[,3])
+q.test<-z.stl$time.series[,3]
+```
+
+Get EWS (test vs null)
+
+```{r}
+lappend<-function(lst,obj){
+  lst[[length(lst)+1]]<-obj
+  return(lst)
+}
+library(spaero)
+bstrap.num<-50
+chop<-1
+stats.list<-list()
+bw.frac<-0.1 # fraction of TS used as bandwidth
+stats.list<-lappend(stats.list,get_stats(q.test,center_kernel="uniform",center_trend="assume_zero",center_bandwidth=bw.frac*length(q.test),stat_bandwidth=bw.frac*length(q.test)))
+for (b in 1:bstrap.num){ # create several null models to get boxplot of AUC
+if (chop==1){#chop up TS by swapping weeks
+  new.order<-sample(1:length(q.test),replace=F)
+  q.null<-q.test[order(new.order)]
+}
+if (chop==2){#distribute cases randomly among weeks of the TS
+  n.cases<-sum(q.test)
+  n.weeks<-length(q.test)
+  q.null<-hist(sample(1:n.weeks,n.cases,replace=T),breaks=seq(0.5,n.weeks+0.5,1),plot=F)$counts
+}
+stats.list<-lappend(stats.list,get_stats(q.null,center_kernel="uniform",center_trend="assume_zero",center_bandwidth=bw.frac*length(q.null),stat_bandwidth=bw.frac*length(q.null)))
+}
+```
+
+Plot EWS
+
+```{r}
+par(mfrow=c(3,2))
+plot(stats.list[[1]]$stats$variance,col="red",type="n",lwd=2,ylab="Variance",ylim=c(0,max(unlist((lapply(stats.list,FUN=function(x) return(max(x$stats$variance,na.rm=T))))))))
+for (i in 2:length(stats.list)){
+  lines(stats.list[[i]]$stats$variance,col="gray80")
+}
+lines(stats.list[[1]]$stats$variance,col="red",lwd=2)
+plot(stats.list[[1]]$stats$autocovariance,col="red",type="n",lwd=2,ylab="Autocovariance",ylim=c(0,max(unlist((lapply(stats.list,FUN=function(x) return(max(x$stats$autocovariance,na.rm=T))))))))
+for (i in 2:length(stats.list)){
+  lines(stats.list[[i]]$stats$autocovariance,col="gray80")
+}
+lines(stats.list[[1]]$stats$autocovariance,col="red",lwd=2)
+plot(stats.list[[1]]$stats$autocorrelation,col="red",type="n",lwd=2,ylab="Autocorrelation",ylim=c(0,max(unlist((lapply(stats.list,FUN=function(x) return(max(x$stats$autocorrelation,na.rm=T))))))))
+for (i in 2:length(stats.list)){
+  lines(stats.list[[i]]$stats$autocorrelation,col="gray80")
+}
+lines(stats.list[[1]]$stats$autocorrelation,col="red",lwd=2)
+plot(stats.list[[1]]$stats$decay_time,col="red",type="n",lwd=2,ylab="Decay time",ylim=c(0,max(unlist((lapply(stats.list,FUN=function(x) return(max(x$stats$decay_time,na.rm=T))))))))
+for (i in 2:length(stats.list)){
+  lines(stats.list[[i]]$stats$decay_time,col="gray80")
+}
+lines(stats.list[[1]]$stats$decay_time,col="red",lwd=2)
+plot(stats.list[[1]]$stats$skewness,col="red",type="n",lwd=2,ylab="Skewness",ylim=c(0,max(unlist((lapply(stats.list,FUN=function(x) return(max(x$stats$skewness,na.rm=T))))))))
+for (i in 2:length(stats.list)){
+  lines(stats.list[[i]]$stats$skewness,col="gray80")
+}
+lines(stats.list[[1]]$stats$skewness,col="red",lwd=2)
+plot(stats.list[[1]]$stats$kurtosis,col="red",type="n",lwd=2,ylab="Kurtosis",ylim=c(0,max(unlist((lapply(stats.list,FUN=function(x) return(max(x$stats$kurtosis,na.rm=T))))))))
+for (i in 2:length(stats.list)){
+  lines(stats.list[[i]]$stats$kurtosis,col="gray80")
+}
+lines(stats.list[[1]]$stats$kurtosis,col="red",lwd=2)
+```

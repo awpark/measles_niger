@@ -1,0 +1,390 @@
+---
+title: 'AERO: preliminary analysis of Niger measles data, 1995-2005'
+output: html_document
+---
+
+```{r, echo=F}
+d<-read.csv("niger_regional_1995_2005.csv",header=T)
+```
+
+```{r}
+dim(d)
+rownames(d)<-d[,1]
+d<-d[,-1]
+rownames(d)
+```
+
+The data frame contains 40 regions and 572 time points spanning 11 years (presumably weeks starting 1 Jan 1995, since 11*nw=572). First, transpose the data frame and name the weeks 1 through 572
+
+```{r}
+d<-as.data.frame(t(d))
+rownames(d)<-1:572
+```
+
+Each entry in the data frame is (presumably) the number of reported measles cases in that region in that week. Now we add a column for the country-level reported measles cases and inspect this
+
+```{r}
+d$national<-rowSums(d,na.rm=T)
+plot(d$national,type="l",col="red")
+```
+
+We observe a seaonal (annual) incidence pattern with considerable variation in total cases per year. Many regions have >1 year intervals between large outbreaks. This is posited to be due to weak coupling between regions, resulting in a distribution of import times >1 year. During this time, regions may be building up susceptible numbers (mainly through births) driving the system to criticality. 
+
+```{r}
+fromto<-matrix(c(130,210,1,1,100,350,100,210,100,200,100,200,100,200,100,300,50,250,1,1,1,1,100,250,150,200,150,200,150,300,150,300,150,250,150,200,100,200,50,150,150,300,100,200,50,450,50,250,50,100,1,1,1,1,350,420,250,300,50,200,100,250,250,300,1,1,250,300,150,200,250,300,250,300,100,200,250,300,50,200),ncol=2,byrow=T)
+par(mfrow=c(10,4),mar=c(1,1,1,1))
+for (i in 1:40){
+  plot(d[,i],type="l",col="blue")
+  abline(v=fromto[i,1],col="red")
+  abline(v=fromto[i,2],col="red")
+}
+```
+
+We need a method to establish interepidemic periods. We can aggregate cases by years and look for threshold number of cases.
+
+```{r}
+cases.by.year<-NULL
+for (i in 1:41){
+  tmp<-rep(0,11)
+  for (j in 1:572){
+    k<-(j-1)%/%52+1
+    if (is.na(d[j,i])==F){tmp[k]<-tmp[k]+d[j,i]}
+  }
+  cases.by.year<-rbind(cases.by.year,tmp)
+}
+ln.cases.by.year<-log(cases.by.year+1)
+par(mfrow=c(10,4),mar=c(1,1,1,1))
+for (i in 1:40){
+  my.max<-max(cases.by.year[i])
+  my.cols<-rep("tbd",11)
+  for (j in 1:11){
+    my.cols[j]<-ifelse(cases.by.year[i,j]>0.1*my.max,"red","blue") #visually distinguish years with <20% max cases from others
+    if (my.cols[j]=="red"){my.cols[j]<-ifelse(cases.by.year[i,j]>0.2*my.max,"red","gray")}
+  }
+  barplot(ln.cases.by.year[i,],col=my.cols)
+}
+```
+
+Experimental design: Based on criteria for interepidemic regions/times, we classify these as years with low activity (<10% maximum annual cases) immediately followed by an outbreak year (>20% maximum annual cases). We put the (weekly time series for the) first year (low activity year) in one list (interepidemic) and an equivalent number of time series' (non-interepidemic, currently outbreak - but should probably be changed to random) in another list
+
+```{r,eval=F,echo=F}
+#define thresholds for low and high activity
+lt4iepi<-0.1
+gt4epi<-0.2
+ny<-2 #number of years in time series being analyzed
+# append a list
+lappend <- function(lst, obj) {
+  lst[[length(lst)+1]] <- obj
+  return(lst)
+}
+inter.epi<-list()
+non.inter.epi<-list()
+for (i in 1:40){
+  for (j in 1:9){
+    if ((cases.by.year[i,j]<lt4iepi*max(cases.by.year[i,]))&(cases.by.year[i,(j+1)]<lt4iepi*max(cases.by.year[i,]))&(cases.by.year[i,(j+2)]>gt4epi*max(cases.by.year[i,]))){
+      inter.epi<-lappend(inter.epi,d[seq((j-1)*52+1,(j-1)*52+(ny*52),1),i])
+    }
+    if ((cases.by.year[i,j]<lt4iepi*max(cases.by.year[i,]))&(cases.by.year[i,(j+1)]<lt4iepi*max(cases.by.year[i,]))&(cases.by.year[i,(j+2)]<lt4iepi*max(cases.by.year[i,]))){
+      non.inter.epi<-lappend(non.inter.epi,d[seq((j-1)*52+1,(j-1)*52+(ny*52),1),i])
+    }
+  }
+}
+inter.epi.2<-list()
+non.inter.epi.2<-list()
+for (i in 1:length(inter.epi)){
+  if (max(is.na(inter.epi[[i]]))==0){inter.epi.2<-lappend(inter.epi.2,inter.epi[[i]])}
+}
+for (i in 1:length(non.inter.epi)){
+  if (max(is.na(non.inter.epi[[i]]))==0){non.inter.epi.2<-lappend(non.inter.epi.2,non.inter.epi[[i]])}
+}
+
+```
+
+Alternate method of getting drift time series and random time series
+```{r}
+lappend <- function(lst, obj) {
+  lst[[length(lst)+1]] <- obj
+  return(lst)
+}
+inter.epi.2<-list()
+for (i in 1:40){
+  if ((is.na(min(d[,i]))==F)&(fromto[i,1]>1)){
+  this.ts<-d[fromto[i,1]:fromto[i,2],i]
+  this.ts<-tail(this.ts,50)
+  inter.epi.2<-lappend(inter.epi.2,this.ts)
+  }
+}
+
+non.inter.epi.2<-list() #chops up time series
+for (i in 1:length(inter.epi.2)){
+  new.order<-sample(1:length(inter.epi.2[[i]]),replace=F)
+  scrambled<-inter.epi.2[[i]][order(new.order)]
+  non.inter.epi.2<-lappend(non.inter.epi.2,scrambled)
+}
+
+#non.inter.epi.2<-list() #swaps regions time series ranges
+#for (i in 1:40){
+#  if ((is.na(min(d[,i]))==F)&(fromto[i,1]>1)){
+#  x<-sample(1:40,1)
+#  this.ts<-d[fromto[x,1]:fromto[x,2],i]
+#  this.ts<-head(this.ts,50)
+#  non.inter.epi.2<-lappend(non.inter.epi.2,this.ts)
+#  }
+#}
+
+non.inter.epi.2[which(lapply(non.inter.epi.2,length)!=50)]<-NULL
+
+
+```
+Now we see if the Kendall's tau statistic for a given EWS statistic is different for time series of the two lists
+
+```{r, warning=F}
+library(VGAM)
+library(spaero)
+cf.tau<-NULL
+ny<-1
+for (i in 1:length(inter.epi.2)){
+  nw<-length(inter.epi.2[[i]])
+  st1<-get_stats(inter.epi.2[[i]],center_kernel="uniform",center_trend="local_constant",center_bandwidth=16,stat_bandwidth=16)
+  cf.tau<-rbind(cf.tau,c(1,kendall.tau(seq(1,ny*nw,1),st1$stats$variance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocovariance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocorrelation),kendall.tau(seq(1,ny*nw,1),st1$stats$decay_time),kendall.tau(seq(1,ny*nw,1),st1$stats$mean),kendall.tau(seq(1,ny*nw,1),st1$stats$index_of_dispersion),kendall.tau(seq(1,ny*nw,1),st1$stats$coefficient_of_variation),kendall.tau(seq(1,ny*nw,1),st1$stats$skewness),kendall.tau(seq(1,ny*nw,1),st1$stats$kurtosis)))
+}
+for (i in 1:length(non.inter.epi.2)){
+  nw<-length(non.inter.epi.2[[i]])
+  st1<-get_stats(non.inter.epi.2[[i]],center_kernel="uniform",center_trend="local_constant",center_bandwidth=16,stat_bandwidth=16)
+  cf.tau<-rbind(cf.tau,c(0,kendall.tau(seq(1,ny*nw,1),st1$stats$variance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocovariance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocorrelation),kendall.tau(seq(1,ny*nw,1),st1$stats$decay_time),kendall.tau(seq(1,ny*nw,1),st1$stats$mean),kendall.tau(seq(1,ny*nw,1),st1$stats$index_of_dispersion),kendall.tau(seq(1,ny*nw,1),st1$stats$coefficient_of_variation),kendall.tau(seq(1,ny*nw,1),st1$stats$skewness),kendall.tau(seq(1,ny*nw,1),st1$stats$kurtosis)))
+}
+
+cf.tau<-as.data.frame(cf.tau)
+names(cf.tau)<-c("label",names(st1$stats))
+cf.tau.orig<-cf.tau
+my.aucs<-NULL
+for (i in 1:9){
+  tmp<-cf.tau[,c(1,(i+1))]
+  real.name<-names(tmp)[2]
+  names(tmp)[2]<-"stat.of.interest"
+  tmp<-tmp[order(tmp$stat.of.interest),]
+  pos1<-which(tmp$label==1)#position in ranked list of 1's
+  n1<-length(pos1)#number of 1's in vector
+  pos0<-which(tmp$label==0)
+  n0<-length(pos0)
+  auc<-0
+  for (j in 1:n1){
+    auc<-auc+(pos1[j]-j)
+  }
+  auc<-auc/(n0*n1)
+  my.aucs<-rbind(my.aucs,c(real.name,auc))
+}
+
+my.aucs<-as.data.frame(my.aucs)
+names(my.aucs)<-c("EWS","AUC")
+my.aucs$AUC<-as.numeric(as.character(my.aucs$AUC))
+
+```
+
+```{r, eval=T, warning=F}
+bstrap.num<-99
+for (b in 1:(bstrap.num-1)){# add to original to make n=10,100 bootstrap
+my.subsample.nonepi<-sample(1:length(non.inter.epi.2),replace=T)
+non.inter.epi.3<-non.inter.epi.2[my.subsample.nonepi]
+my.subsample.epi<-sample(1:length(inter.epi.2),replace=T)
+inter.epi.3<-inter.epi.2[my.subsample.epi]
+
+cf.tau<-NULL
+for (i in 1:length(inter.epi.3)){
+  nw<-length(inter.epi.3[[i]])
+  st1<-get_stats(inter.epi.3[[i]],center_kernel="uniform",center_trend="local_constant",center_bandwidth=16,stat_bandwidth=16)
+  cf.tau<-rbind(cf.tau,c(1,kendall.tau(seq(1,ny*nw,1),st1$stats$variance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocovariance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocorrelation),kendall.tau(seq(1,ny*nw,1),st1$stats$decay_time),kendall.tau(seq(1,ny*nw,1),st1$stats$mean),kendall.tau(seq(1,ny*nw,1),st1$stats$index_of_dispersion),kendall.tau(seq(1,ny*nw,1),st1$stats$coefficient_of_variation),kendall.tau(seq(1,ny*nw,1),st1$stats$skewness),kendall.tau(seq(1,ny*nw,1),st1$stats$kurtosis)))
+}
+for (i in 1:length(non.inter.epi.3)){
+  nw<-length(non.inter.epi.3[[i]])
+  st1<-get_stats(non.inter.epi.3[[i]],center_kernel="uniform",center_trend="local_constant",center_bandwidth=16,stat_bandwidth=16)
+  cf.tau<-rbind(cf.tau,c(0,kendall.tau(seq(1,ny*nw,1),st1$stats$variance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocovariance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocorrelation),kendall.tau(seq(1,ny*nw,1),st1$stats$decay_time),kendall.tau(seq(1,ny*nw,1),st1$stats$mean),kendall.tau(seq(1,ny*nw,1),st1$stats$index_of_dispersion),kendall.tau(seq(1,ny*nw,1),st1$stats$coefficient_of_variation),kendall.tau(seq(1,ny*nw,1),st1$stats$skewness),kendall.tau(seq(1,ny*nw,1),st1$stats$kurtosis)))
+}
+
+cf.tau<-as.data.frame(cf.tau)
+names(cf.tau)<-c("label",names(st1$stats))
+
+my.aucs.2<-NULL
+for (i in 1:9){
+  tmp<-cf.tau[,c(1,(i+1))]
+  real.name<-names(tmp)[2]
+  names(tmp)[2]<-"stat.of.interest"
+  tmp<-tmp[order(tmp$stat.of.interest),]
+  pos1<-which(tmp$label==1)#position in ranked list of 1's
+  pos0<-which(tmp$label==0)
+  n1<-length(pos1)#number of 1's in vector
+  n0<-length(pos0)
+  auc<-0
+  for (j in 1:n1){
+    auc<-auc+(pos1[j]-j)
+  }
+  auc<-auc/(n0*n1)
+  my.aucs.2<-rbind(my.aucs.2,c(real.name,auc))
+}
+my.aucs.2<-as.data.frame(my.aucs.2)
+names(my.aucs.2)<-c("EWS","AUC")
+my.aucs.2$AUC<-as.numeric(as.character(my.aucs.2$AUC))
+my.aucs<-merge(my.aucs,my.aucs.2,by="EWS")
+
+}
+
+par(mfrow=c(1,1),mar=c(5,5,5,1))
+
+ews.list<-list()
+my.aucs.vals<-t(my.aucs[,2:(bstrap.num+1)])
+for (i in 1:9){
+  ews.list<-lappend(ews.list,unname(my.aucs.vals[,i]))
+}
+
+boxplot(ews.list,names=NA,cex.axis=1.0,las=1,ylim=c(0,1),col="gray",ylab="AUC")
+lines(c(0.12,9.88),c(0.5,0.5),col="red")
+text(1:9,rep(0.2,9),my.aucs$EWS,srt=90,col="gray20",cex=0.7)
+```
+
+Check degeneracy of EWS statistics under a scrambling protocol (label swap)
+
+```{r, warning=F, eval=F,echo=F}
+epi.scramble<-list()
+non.epi.scramble<-list()
+
+for (j in 1:length(non.inter.epi.2)){
+  coin<-rbinom(1,1,0.5)
+  ifelse(coin==0,epi.scramble<-lappend(epi.scramble,non.inter.epi.2[[j]]),non.epi.scramble<-lappend(non.epi.scramble,non.inter.epi.2[[j]]))
+}
+for (j in 1:length(inter.epi.2)){
+  coin<-rbinom(1,1,0.5)
+  ifelse(coin==0,epi.scramble<-lappend(epi.scramble,inter.epi.2[[j]]),non.epi.scramble<-lappend(non.epi.scramble,inter.epi.2[[j]]))
+}
+
+cf.tau<-NULL
+for (i in 1:length(epi.scramble)){
+  st1<-get_stats(epi.scramble[[i]],center_kernel="uniform",center_trend="local_constant",center_bandwidth=16,stat_bandwidth=16)
+  cf.tau<-rbind(cf.tau,c(1,kendall.tau(seq(1,ny*nw,1),st1$stats$variance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocovariance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocorrelation),kendall.tau(seq(1,ny*nw,1),st1$stats$decay_time),kendall.tau(seq(1,ny*nw,1),st1$stats$mean),kendall.tau(seq(1,ny*nw,1),st1$stats$index_of_dispersion),kendall.tau(seq(1,ny*nw,1),st1$stats$coefficient_of_variation),kendall.tau(seq(1,ny*nw,1),st1$stats$skewness),kendall.tau(seq(1,ny*nw,1),st1$stats$kurtosis)))
+}
+for (i in 1:length(non.epi.scramble)){
+  st1<-get_stats(non.epi.scramble[[i]],center_kernel="uniform",center_trend="local_constant",center_bandwidth=16,stat_bandwidth=16)
+  cf.tau<-rbind(cf.tau,c(0,kendall.tau(seq(1,ny*nw,1),st1$stats$variance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocovariance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocorrelation),kendall.tau(seq(1,ny*nw,1),st1$stats$decay_time),kendall.tau(seq(1,ny*nw,1),st1$stats$mean),kendall.tau(seq(1,ny*nw,1),st1$stats$index_of_dispersion),kendall.tau(seq(1,ny*nw,1),st1$stats$coefficient_of_variation),kendall.tau(seq(1,ny*nw,1),st1$stats$skewness),kendall.tau(seq(1,ny*nw,1),st1$stats$kurtosis)))
+}
+
+cf.tau<-as.data.frame(cf.tau)
+names(cf.tau)<-c("label",names(st1$stats))
+cf.tau.orig<-cf.tau
+my.aucs<-NULL
+for (i in 1:9){
+  tmp<-cf.tau[,c(1,(i+1))]
+  real.name<-names(tmp)[2]
+  names(tmp)[2]<-"stat.of.interest"
+  tmp<-tmp[order(tmp$stat.of.interest),]
+  pos1<-which(tmp$label==1)#position in ranked list of 1's
+  n1<-length(pos1)#number of 1's in vector
+  pos0<-which(tmp$label==0)
+  n0<-length(pos0)
+  auc<-0
+  for (j in 1:n1){
+    auc<-auc+(pos1[j]-j)
+  }
+  auc<-auc/(n0*n1)
+  my.aucs<-rbind(my.aucs,c(real.name,auc))
+}
+
+my.aucs<-as.data.frame(my.aucs)
+names(my.aucs)<-c("EWS","AUC")
+my.aucs$AUC<-as.numeric(as.character(my.aucs$AUC))
+```
+
+```{r, eval=F,echo=F, warning=F}
+for (i in 1:(bstrap.num-1)){# add to original to make n=10,100 bootstrap
+my.subsample.nonepi<-sample(1:length(non.epi.scramble),replace=T)
+non.inter.epi.scram<-non.epi.scramble[my.subsample.nonepi]
+my.subsample.epi<-sample(1:length(epi.scramble),replace=T)
+inter.epi.scram<-epi.scramble[my.subsample.epi]
+
+cf.tau<-NULL
+for (i in 1:length(inter.epi.scram)){
+  st1<-get_stats(inter.epi.scram[[i]],center_kernel="uniform",center_trend="local_constant",center_bandwidth=16,stat_bandwidth=16)
+  cf.tau<-rbind(cf.tau,c(1,kendall.tau(seq(1,ny*nw,1),st1$stats$variance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocovariance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocorrelation),kendall.tau(seq(1,ny*nw,1),st1$stats$decay_time),kendall.tau(seq(1,ny*nw,1),st1$stats$mean),kendall.tau(seq(1,ny*nw,1),st1$stats$index_of_dispersion),kendall.tau(seq(1,ny*nw,1),st1$stats$coefficient_of_variation),kendall.tau(seq(1,ny*nw,1),st1$stats$skewness),kendall.tau(seq(1,ny*nw,1),st1$stats$kurtosis)))
+}
+for (i in 1:length(non.inter.epi.scram)){
+  st1<-get_stats(non.inter.epi.scram[[i]],center_kernel="uniform",center_trend="local_constant",center_bandwidth=16,stat_bandwidth=16)
+  cf.tau<-rbind(cf.tau,c(0,kendall.tau(seq(1,ny*nw,1),st1$stats$variance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocovariance),kendall.tau(seq(1,ny*nw,1),st1$stats$autocorrelation),kendall.tau(seq(1,ny*nw,1),st1$stats$decay_time),kendall.tau(seq(1,ny*nw,1),st1$stats$mean),kendall.tau(seq(1,ny*nw,1),st1$stats$index_of_dispersion),kendall.tau(seq(1,ny*nw,1),st1$stats$coefficient_of_variation),kendall.tau(seq(1,ny*nw,1),st1$stats$skewness),kendall.tau(seq(1,ny*nw,1),st1$stats$kurtosis)))
+}
+
+cf.tau<-as.data.frame(cf.tau)
+names(cf.tau)<-c("label",names(st1$stats))
+
+my.aucs.2<-NULL
+for (i in 1:9){
+  tmp<-cf.tau[,c(1,(i+1))]
+  real.name<-names(tmp)[2]
+  names(tmp)[2]<-"stat.of.interest"
+  tmp<-tmp[order(tmp$stat.of.interest),]
+  pos1<-which(tmp$label==1)#position in ranked list of 1's
+  pos0<-which(tmp$label==0)
+  n1<-length(pos1)#number of 1's in vector
+  n0<-length(pos0)
+  auc<-0
+  for (j in 1:n1){
+    auc<-auc+(pos1[j]-j)
+    #auc<-auc+(pos1[j]-n1*(n1-1)/2)
+  }
+  auc<-auc/(n0*n1)
+  my.aucs.2<-rbind(my.aucs.2,c(real.name,auc))
+}
+my.aucs.2<-as.data.frame(my.aucs.2)
+names(my.aucs.2)<-c("EWS","AUC")
+my.aucs.2$AUC<-as.numeric(as.character(my.aucs.2$AUC))
+my.aucs<-merge(my.aucs,my.aucs.2,by="EWS")
+
+}
+
+par(mfrow=c(1,1),mar=c(5,5,5,1))
+
+ews.list<-list()
+my.aucs.vals<-t(my.aucs[,2:(bstrap.num+1)])
+for (i in 1:9){
+  ews.list<-lappend(ews.list,unname(my.aucs.vals[,i]))
+}
+
+boxplot(ews.list,names=NA,cex.axis=1.0,las=1,ylim=c(0,1),col="gray",ylab="AUC")
+lines(c(0.12,9.88),c(0.5,0.5),col="red")
+text(1:9,rep(0.2,9),my.aucs$EWS,srt=90,col="gray20",cex=0.7)
+```
+
+Calculate the scaled $R_0$ for each location accounting for imports
+
+```{r,eval=F,echo=F}
+varI<-list()
+imports<-list()
+
+fromto<-matrix(c(130,210,1,1,100,350,100,210,100,200,100,200,100,200,100,300,50,250,1,1,1,1,100,250,150,200,150,200,150,300,150,300,150,300,150,200,100,200,50,150,150,300,100,200,50,450,50,250,50,100,1,1,1,1,350,450,250,300,50,200,100,250,250,300,1,1,250,300,100,250,250,300,250,300,100,200,250,300,50,200),ncol=2,byrow=T)
+
+for (i in 1:40){
+  if ((is.na(min(d[,i]))==F)&(fromto[i,1]>1)){
+  this.ts<-d[fromto[i,1]:fromto[i,2],i]
+  other.ts<-rowSums(d[fromto[i,1]:fromto[i,2],1:40],na.rm=T)-d[fromto[i,1]:fromto[i,2],i]
+  this.varI<-get_stats(this.ts,center_kernel="uniform",center_trend="local_constant",center_bandwidth=16,stat_bandwidth=16)$stats$variance
+  varI<-lappend(varI,this.varI)
+  imports<-lappend(imports,other.ts)
+  }
+}
+R0s<-list()
+for (i in 1:length(varI)){
+  this.R0<abs(-1-sqrt(imports[[i]]/varI[[i]]))
+  R0s<-lappend(R0s,this.R0)
+}
+
+plot(R0s[[1]],type="l")
+for (i in 2:length(R0s)){
+  lines(R0s[[i]])
+}
+
+df.R0<-R0s[[1]]
+for (i in 2:length(R0s)){
+  df.R0<-rbind(df.R0,R0s[[i]])
+}
+
+```
+
+
+
+
